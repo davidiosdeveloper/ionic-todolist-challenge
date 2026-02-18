@@ -89,7 +89,9 @@ ionic cordova build ios
 ionic cordova run ios
 
 
+**Nota importante**
 
+Solicitar los datos de enviroment antes de iniciar la aplicacion
 
 
 
