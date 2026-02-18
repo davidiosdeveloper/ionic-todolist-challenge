@@ -1,0 +1,24 @@
+<ion-item>
+  <ion-checkbox
+    slot="start"
+    [checked]="task.completed"
+    (ionChange)="onToggle()">
+  </ion-checkbox>
+
+  <ion-label>
+    {{ task.title }}
+    <div class="categories">
+      <small *ngIf="task.categoryId?.length">
+        Categorías: {{ getCategoryNames() }}
+      </small>
+    </div>
+  </ion-label>
+
+  <ion-button fill="clear" (click)="updateCategories()">
+    <ion-icon name="pricetags-outline" color="primary"></ion-icon>
+  </ion-button>
+
+  <ion-button fill="clear" (click)="onDelete()">
+    <ion-icon name="trash-outline" color="danger"></ion-icon>
+  </ion-button>
+</ion-item>
