@@ -1,96 +1,129 @@
 import { Injectable } from '@angular/core';
 import { Storage } from '@ionic/storage-angular';
-import { Task } from '../models/task.model';
-import { Category } from '../models/category.model';
-import { BehaviorSubject } from 'rxjs';
+import { Task } from '@models/task.model';
+import { Category } from '@models/category.model';
+import { BehaviorSubject, from, Observable, forkJoin } from 'rxjs';
+import { tap, map } from 'rxjs/operators';
 
 @Injectable({
   providedIn: 'root'
 })
 export class LocalStorageService {
-  private _storage: Storage | null = null;
+
+  private _storage!: Storage;
 
   private tasksSubject = new BehaviorSubject<Task[]>([]);
-  tasks$ = this.tasksSubject.asObservable();
+  readonly tasks$ = this.tasksSubject.asObservable();
 
   private categoriesSubject = new BehaviorSubject<Category[]>([]);
-  categories$ = this.categoriesSubject.asObservable();
+  readonly categories$ = this.categoriesSubject.asObservable();
 
   constructor(private storage: Storage) {}
 
-  async init() {
-    this._storage = await this.storage.create();
-    await this.loadTasks();
-    await this.loadCategories();
+  // -------------------------------
+  // INIT
+  // -------------------------------
+
+  init(): Observable<Storage> {
+    return from(this.storage.create()).pipe(
+      tap(storage => this._storage = storage),
+      tap(() => this.loadInitialData())
+    );
+  }
+
+  private loadInitialData(): void {
+    forkJoin([
+      this.loadTasks(),
+      this.loadCategories()
+    ]).subscribe();
   }
 
   // -------------------------------
-  // MARK: - Gestion de TASKS
+  // MARK: - TASKS
   // -------------------------------
-  async loadTasks() {
-    const tasks = await this._storage?.get('tasks');
-    this.tasksSubject.next(tasks || []);
+
+  private loadTasks(): Observable<Task[]> {
+    return from(this._storage.get('tasks')).pipe(
+      map(tasks => tasks || []),
+      tap(tasks => this.tasksSubject.next(tasks))
+    );
   }
 
-  async getTasks(): Promise<Task[]> {
-    return (await this._storage?.get('tasks')) || [];
+  private saveTasks(tasks: Task[]): Observable<void> {
+    return from(this._storage.set('tasks', tasks)).pipe(
+      tap(() => this.tasksSubject.next(tasks))
+    );
   }
 
-  private async saveTasks(tasks: Task[]): Promise<void> {
-    await this._storage?.set('tasks', tasks);
-    this.tasksSubject.next(tasks);
+  addTask(task: Task): Observable<void> {
+    const updated = [...this.tasksSubject.getValue(), task];
+    return this.saveTasks(updated);
   }
 
-  async addTask(task: Task): Promise<void> {
-    const tasks = await this.getTasks();
-    tasks.push(task);
-    await this.saveTasks(tasks);
+  updateTask(updatedTask: Task): Observable<void> {
+    const updated = this.tasksSubject.getValue().map(t =>
+      t.id === updatedTask.id ? updatedTask : t
+    );
+    return this.saveTasks(updated);
   }
 
-  async updateTask(updatedTask: Task): Promise<void> {
-    let tasks = await this.getTasks();
-    tasks = tasks.map(t => t.id === updatedTask.id ? updatedTask : t);
-    await this.saveTasks(tasks);
+  deleteTask(taskId: string): Observable<void> {
+    const updated = this.tasksSubject.getValue()
+      .filter(t => t.id !== taskId);
+    return this.saveTasks(updated);
   }
 
-  async deleteTask(taskId: string): Promise<void> {
-    let tasks = await this.getTasks();
-    tasks = tasks.filter(t => t.id !== taskId);
-    await this.saveTasks(tasks);
+  removeCategoryFromTasks(categoryId: number): Observable<void> {
+    const updatedTasks = this.tasksSubject.getValue().map(task => {
+      if (task.categoryId?.includes(categoryId)) {
+        return {
+          ...task,
+          categoryId: task.categoryId.filter(c => c !== categoryId),
+          updatedAt: new Date()
+        };
+      }
+      return task;
+    });
+
+    return this.saveTasks(updatedTasks);
   }
 
   // -------------------------------
-  // MARK: - Gestion de Categories
+  // MARK: - CATEGORIES
   // -------------------------------
-  async loadCategories() {
-    const categories = await this._storage?.get('categories');
-    this.categoriesSubject.next(categories || []);
+  getCurrentCategories(): Category[] {
+    return this.categoriesSubject.value;
   }
 
-  async getCategories(): Promise<Category[]> {
-    return (await this._storage?.get('categories')) || [];
+  private loadCategories(): Observable<Category[]> {
+    return from(this._storage.get('categories')).pipe(
+      map(categories => categories || []),
+      tap(categories => this.categoriesSubject.next(categories))
+    );
   }
 
-  private async saveCategories(categories: Category[]): Promise<void> {
-    await this._storage?.set('categories', categories);
-    this.categoriesSubject.next(categories);
+  private saveCategories(categories: Category[]): Observable<void> {
+    return from(this._storage.set('categories', categories)).pipe(
+      tap(() => this.categoriesSubject.next(categories))
+    );
   }
 
-  async addCategory(category: Category): Promise<void> {
-    const categories = await this.getCategories();
-    categories.push(category);
-    await this.saveCategories(categories);
+  addCategory(category: Category): Observable<void> {
+    const updated = [...this.categoriesSubject.getValue(), category];
+    return this.saveCategories(updated);
   }
 
-  async updateCategory(updatedCategory: Category): Promise<void> {
-    let categories = await this.getCategories();
-    categories = categories.map(c => c.id === updatedCategory.id ? updatedCategory : c);
-    await this.saveCategories(categories);
+  updateCategory(updatedCategory: Category): Observable<void> {
+    const updated = this.categoriesSubject.getValue().map(c =>
+      c.id === updatedCategory.id ? updatedCategory : c
+    );
+    return this.saveCategories(updated);
   }
 
-  async deleteCategory(categoryId: number): Promise<void> {
-    let categories = await this.getCategories();
-    categories = categories.filter(c => c.id !== categoryId);
-    await this.saveCategories(categories);
+  deleteCategory(categoryId: number): Observable<void> {
+    const updated = this.categoriesSubject.getValue()
+      .filter(c => c.id !== categoryId);
+
+    return this.saveCategories(updated);
   }
 }

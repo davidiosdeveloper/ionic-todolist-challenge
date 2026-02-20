@@ -1,7 +1,7 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { IonIcon, IonItem, IonLabel, IonButton, IonCheckbox } from '@ionic/angular/standalone';
-import { Task } from '../../models/task.model';
-import { Category } from 'src/app/models/category.model';
+import { Task } from '@models/task.model';
+import { Category } from '@models/category.model';
 import { CommonModule } from '@angular/common';
 
 @Component({

@@ -1,15 +1,16 @@
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Task } from '../../models/task.model';
+import { Task } from '@models/task.model';
 import { IonList, IonItem, IonIcon, IonLabel, IonCheckbox, IonButton, IonContent, IonHeader, IonTitle, IonToolbar, IonInput, IonButtons, IonModal } from '@ionic/angular/standalone';
 import { ChangeDetectionStrategy, Component, OnInit } from '@angular/core';
-import { TaskItemComponent } from '../../components/task-item/task-item.component';
-import { LocalStorageService } from '../../services/local-storage.service';
-import { Category } from 'src/app/models/category.model';
+import { TaskItemComponent } from '@components/task-item/task-item.component';
+import { LocalStorageService } from '@services/local-storage.service';
+import { Category } from '@models/category.model';
 import { AlertController } from '@ionic/angular';
 import { ScrollingModule } from '@angular/cdk/scrolling';
-import { FeatureFlagService } from 'src/app/services/feature-flag.service';
-import { from } from 'rxjs';
+import { FeatureFlagService } from '@services/feature-flag.service';
+import { BehaviorSubject, from, combineLatest } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 @Component({
   selector: 'app-tasks',
@@ -43,12 +44,37 @@ export class TasksPage implements OnInit {
 
   selectedTask: Task | null = null;
   newTaskTitle: string = '';
-  showCategoryModal = false;
   newCategoryTitle: string = '';
-
+  showCategoryModal = false;
   showFilterModal = false;
-  filterPending = false;
-  selectedCategories: number[] = [];
+
+  private filterPendingSubject = new BehaviorSubject<boolean>(false);
+  private selectedCategoriesSubject = new BehaviorSubject<number[]>([]);
+
+  filteredTasks$ = combineLatest([
+    this.localStorage.tasks$,
+    this.filterPendingSubject,
+    this.selectedCategoriesSubject
+  ]).pipe(
+    map(([tasks, filterPending, selectedCategories]) => {
+
+      let filtered = tasks;
+
+      if (filterPending) {
+        filtered = filtered.filter(t => !t.completed);
+      }
+
+      if (selectedCategories.length > 0) {
+        filtered = filtered.filter(t =>
+          t.categoryId?.some(c =>
+            selectedCategories.includes(c)
+          )
+        );
+      }
+
+      return filtered;
+    })
+  );
 
   enableCategories$ = from(
     this.featureFlagService.isFeatureEnabled('enableCategories')
@@ -60,12 +86,12 @@ export class TasksPage implements OnInit {
     private featureFlagService: FeatureFlagService,
   ) {}
 
-  async ngOnInit() {
-    await this.localStorage.init();
+  ngOnInit() {
+    this.localStorage.init().subscribe();
   }
 
-  async addTask(title: string) {
-    if (!title || title.trim() === '') return;
+  addTask(title: string) {
+    if (!title?.trim()) return;
 
     const newTask: Task = {
       id: Date.now().toString(),
@@ -75,37 +101,28 @@ export class TasksPage implements OnInit {
       createdAt: new Date()
     };
 
-    await this.localStorage.addTask(newTask);
+    this.localStorage.addTask(newTask).subscribe();
     this.newTaskTitle = '';
   }
 
-  async deleteTask(taskId: string) {
-    await this.localStorage.deleteTask(taskId);
+  deleteTask(taskId: string) {
+    this.localStorage.deleteTask(taskId).subscribe();
   }
 
-  async toggleTask(task: Task) {
-    task.completed = !task.completed;
-    await this.localStorage.updateTask(task);
+  toggleTask(task: Task) {
+    const updated = {
+      ...task,
+      completed: !task.completed,
+      updatedAt: new Date()
+    };
+    this.localStorage.updateTask(updated).subscribe();
   }
 
   // -------------------------------
   // MARK: - Gestion de Categories
   // -------------------------------
-  async updateCategories(updatedTask: Task) {
-    await this.localStorage.updateTask(updatedTask);
-  }
-
-  async addCategory(categoryName: string) {
-    const categories = await this.localStorage.getCategories();
-    const lastId = categories.length > 0 ? Math.max(...categories.map(c => c.id)) : 0;
-    const newCategory: Category = {
-      id: lastId + 1,
-      name: categoryName,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    await this.localStorage.addCategory(newCategory);
-    this.newCategoryTitle = '';
+  updateCategories(updatedTask: Task) {
+    this.localStorage.updateTask(updatedTask).subscribe();
   }
 
   openCategoryModal(task: Task) { 
@@ -113,17 +130,41 @@ export class TasksPage implements OnInit {
     this.showCategoryModal = true; 
   }
 
-  async toggleCategory(categoryId: number) { 
-    if (!this.selectedTask) return; 
-    if (!this.selectedTask.categoryId) this.selectedTask.categoryId = [];
+  addCategory(categoryName: string) {
+    const categories = this.localStorage.getCurrentCategories();
 
-    if (this.selectedTask.categoryId.includes(categoryId)) { // Delete category
-      this.selectedTask.categoryId = this.selectedTask.categoryId.filter(c => c !== categoryId); 
-    } else { // add category
-      this.selectedTask.categoryId.push(categoryId); 
-    } 
+    const lastId =
+      categories.length > 0
+        ? Math.max(...categories.map(c => c.id))
+        : 0;
 
-    await this.localStorage.updateTask(this.selectedTask);
+    const newCategory: Category = {
+      id: lastId + 1,
+      name: categoryName,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    this.localStorage.addCategory(newCategory).subscribe();
+    this.newCategoryTitle = '';
+  }
+
+  toggleCategory(categoryId: number) {
+    if (!this.selectedTask) return;
+
+    const currentCategories = this.selectedTask.categoryId || [];
+
+    const updatedCategories = currentCategories.includes(categoryId)
+      ? currentCategories.filter(c => c !== categoryId)
+      : [...currentCategories, categoryId];
+
+    const updatedTask: Task = {
+      ...this.selectedTask,
+      categoryId: updatedCategories,
+      updatedAt: new Date()
+    };
+
+    this.localStorage.updateTask(updatedTask).subscribe();
   }
   
   async confirmDeleteCategory(category: Category) {
@@ -147,20 +188,9 @@ export class TasksPage implements OnInit {
     await alert.present();
   }
 
-    async deleteCategory(category: Category) {
-    await this.localStorage.deleteCategory(category.id);
-
-    let tasks = await this.localStorage.getTasks();
-    tasks = tasks.map(task => {
-      if (task.categoryId?.includes(category.id)) {
-        task.categoryId = task.categoryId.filter(c => c !== category.id);
-      }
-      return task;
-    });
-
-    for (const task of tasks) {
-      await this.localStorage.updateTask(task);
-    }
+  deleteCategory(category: Category) {
+    this.localStorage.deleteCategory(category.id).subscribe();
+    this.localStorage.removeCategoryFromTasks(category.id).subscribe();
   }
   
   closeCategoryModal() { 
@@ -180,41 +210,24 @@ export class TasksPage implements OnInit {
   }
 
   togglePendingFilter() {
-    this.filterPending = !this.filterPending;
-    this.applyFilters();
+    this.filterPendingSubject.next(!this.filterPendingSubject.value);
   }
 
   toggleCategoryFilter(categoryId: number) {
-    if (this.selectedCategories.includes(categoryId)) {
-      this.selectedCategories = this.selectedCategories.filter(c => c !== categoryId);
-    } else {
-      this.selectedCategories.push(categoryId);
-    }
-    this.applyFilters();
+    const current = this.selectedCategoriesSubject.value;
+
+    const updated = current.includes(categoryId)
+      ? current.filter(c => c !== categoryId)
+      : [...current, categoryId];
+
+    this.selectedCategoriesSubject.next(updated);
   }
 
-  async applyFilters() {
-    let allTasks = await this.localStorage.getTasks();
-
-    if (this.filterPending) {
-      allTasks = allTasks.filter(t => !t.completed);
-    }
-
-    if (this.selectedCategories.length > 0) {
-      allTasks = allTasks.filter(t => 
-        t.categoryId?.some(c => this.selectedCategories.includes(c))
-      );
-    }
-    this.localStorage['tasksSubject'].next(allTasks);
+  get filterPending(): boolean {
+    return this.filterPendingSubject.value;
   }
 
+  get selectedCategories(): number[] {
+    return this.selectedCategoriesSubject.value;
+  }
 }
-
-
-
-
-
-
-
-
-

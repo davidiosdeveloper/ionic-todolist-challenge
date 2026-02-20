@@ -20,7 +20,12 @@
     "module": "es2020",
     "lib": ["es2018", "dom"],
     "skipLibCheck": true,
-    "useDefineForClassFields": false
+    "useDefineForClassFields": false,
+    "paths": {
+      "@components/*": ["src/app/components/*"],
+      "@services/*": ["src/app/services/*"],
+      "@models/*": ["src/app/models/*"],
+    }
   },
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
